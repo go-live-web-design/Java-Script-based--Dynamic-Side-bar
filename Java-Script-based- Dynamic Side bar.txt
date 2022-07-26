@@ -1,0 +1,226 @@
+/**
+ * get page sidebar
+ * 
+ * @return string
+ */
+function dynamic_page_sidebar($class, $excluded_page, $alphabetical_order )
+{
+	global $post;
+	$pageLinkInfo = getTopLevelParent($post->ID);
+	$args = array(
+		'child_of' => $pageLinkInfo['superParent'],
+		'exclude' => $excluded_page,
+		'hierarchical' => -1,
+		'echo' => false
+	);
+	//sort order using page order, page attribute https://codex.wordpress.org/Function_Reference/wp_page_menu
+	if($alphabetical_order)
+	{
+		$args['sort_column'] = 'menu_order, post_title';
+		$args['sort_order'] = 'asc';
+	}
+	
+	$pages = get_pages($args);
+	$links = '';
+	$menus = [];
+	foreach($pages as $page)
+	{
+		$order_no = fix_reorder(isset($menus[$page->post_parent]),$page->menu_order);
+
+		$menus[$page->post_parent][$order_no] = [
+			'id' => $page->ID,
+			'title' => get_the_title($page),
+			'link' => get_the_permalink($page),
+			'class' => 'id-'.$page->ID,
+		];
+	}
+
+	ksort($menus[$page->post_parent]);
+
+	$links = '<li class="custom-menu-title">'.strtoupper(get_the_title($pageLinkInfo['superParent'])).'</li>';
+
+	foreach($menus[$pageLinkInfo['superParent']] as $menu)
+	{
+		$link_class = '';
+		$link_class .= in_array($menu['id'], $pageLinkInfo['parent_path']) ? 'active' : '';
+		$link_class .= array_key_exists($menu['id'], $menus) ? ' custom-has-submenu' : '';
+		$link_class .= !wp_is_mobile() ? ' fly-out-parent' : ' fly-out-parent';
+
+		$links .= '<li class="'.$link_class.'">';
+
+		if(wp_is_mobile() && array_key_exists($menu['id'], $menus))
+		{
+			$links .= '<a >'.$menu['title'].'</a>';
+		} else {
+			$links .= '<a href="'.$menu['link'].'">'.$menu['title'].'</a>';
+		}
+
+
+		if(array_key_exists($menu['id'], $menus))
+		{
+			if(!wp_is_mobile())
+			{
+				$submenu_links = '<li class="custom-submenu-title">'.$menu['title'].'</li>';
+			} else {
+				$submenu_links = '';
+			}
+
+			ksort($menus[$menu['id']]);
+
+			if(wp_is_mobile() || count($menus[$menu['id']]) <= 6)
+			{
+				foreach($menus[$menu['id']] as $submenu)
+				{
+					$submenu_links .= '<li class="'.(in_array($submenu['id'], $pageLinkInfo['parent_path']) ? 'active' : '').'">';
+					$submenu_links .= '<a href="'.$submenu['link'].'">'.$submenu['title'].'</a></li>';
+				}
+			} else {
+
+				$submenu_group = [];
+				$initial_group_id = 1;
+				$counter = 1;
+				$factor = 1;
+
+				if(count($menus[$menu['id']]) > 20)
+				{
+					$factor = round(count($menus[$menu['id']]) / 3) + 1;
+				}
+				elseif(count($menus[$menu['id']]) > 6)
+				{
+					$factor = round(count($menus[$menu['id']]) / 2) + 1;
+				}
+
+				foreach($menus[$menu['id']] as $submenu)
+				{
+					if($counter == $factor)
+					{
+						$initial_group_id = 2;
+					}
+					elseif($counter == ($factor*2-1) )
+					{
+						$initial_group_id = 3;
+					}
+
+					$submenu_group[$initial_group_id][] = $submenu;
+
+					$counter++;
+				}
+
+				foreach($submenu_group[1] as $key => $submenu)
+				{
+					$submenu_links .= '<li class="'.(in_array($submenu['id'], $pageLinkInfo['parent_path']) ? 'active' : '').'">';
+					$submenu_links .= '<a href="'.$submenu['link'].'">'.$submenu['title'].'</a></li>';
+
+					if(array_key_exists(2, $submenu_group))
+					{
+						if(array_key_exists($key, $submenu_group[2]))
+						{
+							$submenu_links .= '<li class="'.(in_array($submenu_group[2][$key]['id'], $pageLinkInfo['parent_path']) ? 'active' : '').'">';
+							$submenu_links .= '<a href="'.$submenu_group[2][$key]['link'].'">'.$submenu_group[2][$key]['title'].'</a></li>';						
+						}
+					}
+
+					if(array_key_exists(3, $submenu_group))
+					{
+						if(array_key_exists($key, $submenu_group[3]))
+						{
+							$submenu_links .= '<li class="'.(in_array($submenu_group[3][$key]['id'], $pageLinkInfo['parent_path']) ? 'active' : '').'">';
+							$submenu_links .= '<a href="'.$submenu_group[3][$key]['link'].'">'.$submenu_group[3][$key]['title'].'</a></li>';						
+						}
+					}
+				}
+			}
+
+			$submenu_class = 'dynamic_page_sidebar_submenu';
+
+			if(!wp_is_mobile() && count($menus[$menu['id']]) > 20)
+			{
+				$submenu_class .= ' xxx-width';
+			}
+			elseif(!wp_is_mobile() && count($menus[$menu['id']]) > 6)
+			{
+				$submenu_class .= ' xx-width';
+			}
+
+			if(!wp_is_mobile()){
+				$submenu_class .= ' fly-out';
+			}
+			else if(wp_is_mobile()){
+				$submenu_class .=' fly-out';
+			}
+			$links .= '<ul class="'.$submenu_class.'">'.$submenu_links.'</ul>';
+		}
+
+		$links .= '</li>';
+	}
+
+	return '<ul class="'.$class.'" id="menu05">'.$links.'</ul>';
+
+}
+
+
+/**
+ * manipulate order no for it should not be duplicate
+ * 
+ * @param  array $menus    
+ * @param  int $order_no 
+ * @return int
+ */
+function fix_reorder($menus,$order_no)
+{
+	if(is_array($order_no) && is_array($menus) && array_key_exists($order_no, $menus))
+	{
+		$new_order_no = $order_no + 1;
+
+		if(array_key_exists($new_order_no, $menus))
+			return fix_reorder($menus,$new_order_no);
+
+		return $new_order_no;
+	}
+
+	return $order_no;
+}
+
+
+/**
+ * get the first ever parent of current page
+ * 
+ * @param  int $post_id 
+ * @return int
+ */
+function getTopLevelParent($post_id, $relative_path = [])
+{
+	$current_path[] = $post_id;
+	$relative_path = array_merge($relative_path,$current_path);
+
+	$parent = get_post_ancestors( $post_id );
+
+	if(empty($parent))
+		return [
+			'superParent' => $post_id,
+			'parent_path' => $relative_path
+		];
+
+	return getTopLevelParent($parent[0],$relative_path);
+}
+
+
+/**
+ * register dynamic sidebar page shortcode
+ * [dynamic_page_shortcord class="dynamic_page_sidebar" exclude="123:456:789" aorder="true"]
+ * 
+ * @param  [type] $atts [description]
+ * @return [type]       [description]
+ */
+function dynamic_sidebar_page_func( $attributes ) {
+    $parameters = shortcode_atts( array(
+        'class' => 'dynamic_sidebar_page',
+        'exclude' => '',
+        'aorder' => true,
+    ), $attributes );
+
+    echo dynamic_page_sidebar($parameters['class'],implode(',', explode(':', $parameters['exclude'])),$parameters['aorder']);
+
+    // return "foo = {$a['foo']}";
+}
+add_shortcode( 'dynamic_page_shortcord', 'dynamic_sidebar_page_func' );
